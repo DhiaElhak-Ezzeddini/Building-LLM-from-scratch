@@ -211,4 +211,47 @@ class GELU(nn.Module):
     
     def forward(self,x):
         return 0.5*x*(1 + torch.tanh(torch.sqrt(torch.tensor(2.0/torch.pi))*(x+0.044715*torch.pow(x,3))))
+
+
+
+def assign(left,right):
+    if left.shape != right.shape : 
+        raise ValueError(f" Shape mismatch .Left: {left.shape}  Right: {right.shape}")
+    return torch.nn.Parameter(torch.tensor(right))
+
+
+## Loading the weights into our gpt model
+import numpy as np 
+def load_weights_into_gpt(gpt , params) : 
+    gpt.pos_emb.weight = assign(gpt.pos_emb.weight,params["wpe"])
+    gpt.tok_emb.weight = assign(gpt.tok_emb.weight,params["wte"])
     
+    for b in range(len(params["blocks"])) : 
+        ## Attention Q,K,V weights
+        q_w,k_w,v_w = np.split((params["blocks"][b]["attn"]["c_attn"])["w"] , 3 , axis=-1)
+        gpt.trf_blocks[b].MHattention.w_q.weight =assign(gpt.trf_blocks[b].MHattention.w_q.weight ,q_w.T)
+        gpt.trf_blocks[b].MHattention.w_k.weight   =assign(gpt.trf_blocks[b].MHattention.w_k.weight ,k_w.T)
+        gpt.trf_blocks[b].MHattention.w_v.weight =assign(gpt.trf_blocks[b].MHattention.w_v.weight ,v_w.T)
+        ## Attention Q,K,V bias
+        q_b , k_b , v_b = np.split((params["blocks"][b]["attn"]["c_attn"])["b"],3,axis=-1)
+        gpt.trf_blocks[b].MHattention.w_q.bias =assign(gpt.trf_blocks[b].MHattention.w_q.bias ,q_b)
+        gpt.trf_blocks[b].MHattention.w_k.bias   =assign(gpt.trf_blocks[b].MHattention.w_k.bias ,k_b)
+        gpt.trf_blocks[b].MHattention.w_v.bias =assign(gpt.trf_blocks[b].MHattention.w_v.bias ,v_b)
+        ## Attention out_proj weights and bias
+        gpt.trf_blocks[b].MHattention.out_proj.weight = assign(gpt.trf_blocks[b].MHattention.out_proj.weight,params["blocks"][b]["attn"]["c_proj"]["w"].T)
+        gpt.trf_blocks[b].MHattention.out_proj.bias   = assign(gpt.trf_blocks[b].MHattention.out_proj.bias,params["blocks"][b]["attn"]["c_proj"]["b"])
+        ## feed forward layer weights and bias 
+        gpt.trf_blocks[b].ffn.layers[0].weight = assign(gpt.trf_blocks[b].ffn.layers[0].weight,params["blocks"][b]["mlp"]["c_fc"]["w"].T)
+        gpt.trf_blocks[b].ffn.layers[0].bias   = assign(gpt.trf_blocks[b].ffn.layers[0].bias,params["blocks"][b]["mlp"]["c_fc"]["b"])
+        gpt.trf_blocks[b].ffn.layers[2].weight = assign(gpt.trf_blocks[b].ffn.layers[2].weight,params["blocks"][b]["mlp"]["c_proj"]["w"].T)
+        gpt.trf_blocks[b].ffn.layers[2].bias   = assign(gpt.trf_blocks[b].ffn.layers[2].bias,params["blocks"][b]["mlp"]["c_proj"]["b"])
+        
+        gpt.trf_blocks[b].layer_norm_1.scale = assign(gpt.trf_blocks[b].layer_norm_1.scale,params["blocks"][b]["ln_1"]["g"])
+        gpt.trf_blocks[b].layer_norm_1.shift = assign(gpt.trf_blocks[b].layer_norm_1.shift,params["blocks"][b]["ln_1"]["b"])
+        gpt.trf_blocks[b].layer_norm_2.scale = assign(gpt.trf_blocks[b].layer_norm_2.scale,params["blocks"][b]["ln_2"]["g"])
+        gpt.trf_blocks[b].layer_norm_2.shift = assign(gpt.trf_blocks[b].layer_norm_2.shift,params["blocks"][b]["ln_2"]["b"])
+        
+        gpt.final_norm.scale = assign(gpt.final_norm.scale, params["g"])
+        gpt.final_norm.shift = assign(gpt.final_norm.shift, params["b"])
+        
+        gpt.out_head.weight  = assign(gpt.out_head.weight,  params["wte"])
